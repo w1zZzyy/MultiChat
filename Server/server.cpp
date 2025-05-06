@@ -63,27 +63,38 @@ Server::Server(const std::string& address, const std::string& display_address)
             {
                 std::lock_guard<std::mutex> lg(clientMTX);
 
-                for(auto sock : clientSockets)
+                for(auto client = clientSockets.begin(); client != clientSockets.end();)
                 {
                     memset(buffer, 0, BUFF_SIZE);
                     
-                    int bytes = recv(sock, buffer, BUFF_SIZE, MSG_DONTWAIT);
-                    
-                    if(bytes == -1) {
-                        continue;
-                    }
+                    int bytes = recv(*client, buffer, BUFF_SIZE, MSG_DONTWAIT);
 
-                    if(bytes == 0) {
-                        continue;
-                    }
-
-                    if(bytes < BUFF_SIZE) {
+                    if(bytes > 0)
+                    {
                         buffer[bytes] = '\0';
+
+                        if(send(displaySocket, buffer, sizeof(buffer), 0) == -1) {
+                            std::cerr << "server send error\n";
+                        }  
+
+                        ++client;
+                    }
+                    
+                    else if(bytes == 0) {
+                        std::cout << "deleted\n";
+                        client = clientSockets.erase(client);
+                        continue;
                     }
 
-                    if(send(displaySocket, buffer, sizeof(buffer), 0) == -1) {
-                        std::cerr << "server send error\n";
+                    else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        ++client;
+                        continue;
+                    } 
+
+                    else {
+                        throw std::runtime_error("client socket error\n");
                     }
+
                 }
             }
         }

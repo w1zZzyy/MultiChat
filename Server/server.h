@@ -2,7 +2,7 @@
 
 #include <network_utils.h>
 
-#include <vector>
+#include <list>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -26,7 +26,7 @@ private:
     int                         displaySocket;
     sockaddr_in                 displayAddr;
 
-    std::vector<int>            clientSockets;
+    std::list<int>              clientSockets;
 
     std::mutex                  clientMTX;
     std::thread                 acceptor;

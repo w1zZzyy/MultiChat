@@ -7,7 +7,7 @@
 #include <chrono>
 #include <ctime>
 
-Display::Display(std::string address)
+Display::Display(const std::string& address)
 {
     CreateAddress(address, displaySocket, displayAddr);
 

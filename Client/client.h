@@ -7,6 +7,7 @@ class Client
 public:
 
     Client(const std::string& server_address, const std::string& name);
+    ~Client();
 
     void send_message(const std::string& msg);
 

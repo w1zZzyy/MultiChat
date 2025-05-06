@@ -6,7 +6,7 @@ class Display
 {
 public:
 
-    Display(std::string address);
+    Display(const std::string& address);
     ~Display();
 
     void receive() const;

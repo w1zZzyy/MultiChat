@@ -1,4 +1,5 @@
 #include "client.h"
+
 #include <iostream>
 #include <cassert>
 #include <stdexcept>
@@ -14,7 +15,7 @@ int main(int argc, char* argv[])
         Client client(argv[1], argv[2]);
 
         std::string message;
-        while(std::cin >> message){
+        while(std::getline(std::cin, message)){
             client.send_message(message);
         }
     }
@@ -28,6 +29,4 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "Client run end\n";
-
-    std::cin.get();
 }
