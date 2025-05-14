@@ -7,13 +7,17 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <queue>
+
+
+
 
 
 class Server
 {
 public:
 
-    Server(const std::string& address, const std::string& display_address);
+    Server(const std::string& address);
     ~Server();
 
     void call_stop();
@@ -23,13 +27,18 @@ private:
     int                         serverSocket;
     sockaddr_in                 serverAddr;
 
-    int                         displaySocket;
-    sockaddr_in                 displayAddr;
-
     std::list<int>              clientSockets;
 
+    std::queue<std::pair
+    <int, std::string>>         msgs;
+
     std::mutex                  clientMTX;
+    std::mutex                  msgMTX;
+
+    std::condition_variable     msgCV;
+
     std::thread                 acceptor;
     std::thread                 receiver;
+    std::thread                 sender;
     std::atomic<bool>           stop;
 };

@@ -4,13 +4,13 @@
 
 int main(int argc, char* argv[]) 
 {
-    assert(argc == 3);
+    assert(argc == 2);
 
     std::cout << "Server run start\n";
 
     try
     {
-        Server server(argv[1], argv[2]);
+        Server server(argv[1]);
 
         while(true)
         {

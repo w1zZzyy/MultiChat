@@ -6,13 +6,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstring>
+#include <chrono>
 
-Server::Server(const std::string& address, const std::string& display_address)
+Server::Server(const std::string& address)
 {
     stop.store(false);
 
-    CreateAddress(address,          serverSocket,   serverAddr);
-    CreateAddress(display_address,  displaySocket,  displayAddr);
+    CreateAddress(address, serverSocket, serverAddr);
     
     if(bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
         throw std::runtime_error("server bind error\n");
@@ -20,10 +20,6 @@ Server::Server(const std::string& address, const std::string& display_address)
 
     if(listen(serverSocket, 10) == -1) {
         throw std::runtime_error("server listen error\n");
-    }
-
-    if(connect(displaySocket, (sockaddr*)&displayAddr, sizeof(displayAddr)) == -1) {
-        throw std::runtime_error("server connect to display error\n");
     }
 
 
@@ -46,7 +42,6 @@ Server::Server(const std::string& address, const std::string& display_address)
                 }
 
                 std::lock_guard<std::mutex> lg(clientMTX);
-
                 clientSockets.push_back(clientSocket);
             }
         }
@@ -57,44 +52,121 @@ Server::Server(const std::string& address, const std::string& display_address)
     (
         [&]()
         {
+            char info[MSG_INFO_SIZE];
             char buffer[BUFF_SIZE];
                 
             while(!stop.load())
             {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 std::lock_guard<std::mutex> lg(clientMTX);
 
-                for(auto client = clientSockets.begin(); client != clientSockets.end();)
+                for(auto client = clientSockets.begin(); client != clientSockets.end(); ++client)
                 {
-                    memset(buffer, 0, BUFF_SIZE);
+                    std::memset(buffer, 0, BUFF_SIZE);
+                    std::memset(info, 0, MSG_INFO_SIZE);
                     
-                    int bytes = recv(*client, buffer, BUFF_SIZE, MSG_DONTWAIT);
+                    int info_bytes = recv(*client, info, MSG_INFO_SIZE, MSG_DONTWAIT);
 
-                    if(bytes > 0)
+                    if(info_bytes > 0)
                     {
-                        buffer[bytes] = '\0';
+                        if(info_bytes != MSG_INFO_SIZE) {
+                            throw std::runtime_error("incorrect number of bytes in info\n");
+                        }
 
-                        if(send(displaySocket, buffer, sizeof(buffer), 0) == -1) {
-                            std::cerr << "server send error\n";
-                        }  
+                        MessageType msg_flag;
+                        size_t name_len, msg_len;
+                        std::string name, msg;
 
-                        ++client;
+                        auto data = info;
+
+                        
+                        std::memcpy(reinterpret_cast<char*>(&msg_flag), data, FLAG_SIZE);
+                        data += FLAG_SIZE;
+
+                        std::memcpy(reinterpret_cast<char*>(&name_len), data, ST_SIZE);
+                        data += ST_SIZE;
+
+                        name.resize(name_len);
+
+                        std::memcpy(name.data(), data, name_len);
+                        data += name_len;
+
+
+                        if(msg_flag & ClientConnStatus) 
+                        {
+                            msg = ((msg_flag == ClientConnected) 
+                                        ? "--Connected--" 
+                                        : "--Disconnected--");
+                            name += ' ';
+                        }
+
+                        else if(msg_flag == TextMSG)
+                        {
+                            std::memcpy(reinterpret_cast<char*>(&msg_len), data, ST_SIZE);
+                            data = buffer;
+
+                            for(size_t msg_bytes = 0; msg_bytes < msg_len;)
+                            {
+                                int buffer_bytes = recv(*client, buffer + msg_bytes, msg_len - msg_bytes, 0);
+                                
+                                if(buffer_bytes <= 0) {
+                                    throw std::runtime_error("Not all data was received\n");
+                                }
+
+                                msg_bytes += buffer_bytes;
+                            }
+
+                            msg = std::string(buffer, msg_len);
+                            name += ":\n";
+                        }
+
+                        else throw std::runtime_error("server flag error\n");
+
+
+                        {
+                            std::lock_guard<std::mutex> lg(msgMTX);
+                            msgs.push({*client, name + msg + "\n"});
+                        }
+                        msgCV.notify_one();
                     }
-                    
-                    else if(bytes == 0) {
-                        std::cout << "deleted\n";
-                        client = clientSockets.erase(client);
-                        continue;
+
+                }
+            }
+        }
+    );
+
+    sender = std::thread
+    (
+        [&]
+        {
+            while(!stop.load())
+            {
+                std::unique_lock<std::mutex> ul(msgMTX);
+                msgCV.wait(ul, [&]{return !msgs.empty() || stop;});
+
+                if(msgs.empty()) break;
+
+                auto [client_sender, msg] = msgs.front();
+                msgs.pop();
+
+                ul.unlock();
+
+
+                auto now = std::chrono::system_clock::now();               
+                std::time_t now_c = std::chrono::system_clock::to_time_t(now); 
+                std::string timeStr = std::ctime(&now_c);
+                timeStr.pop_back(); 
+
+                auto infoText = "[" + timeStr + "] " + msg;
+
+
+                std::lock_guard<std::mutex> lg(clientMTX);
+                for(auto& client : clientSockets) {
+                    if(client != client_sender) {
+                        if(send(client, infoText.c_str(), infoText.size(), 0) == -1) {
+                            throw std::runtime_error("server to client send error\n");
+                        }
                     }
-
-                    else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                        ++client;
-                        continue;
-                    } 
-
-                    else {
-                        throw std::runtime_error("client socket error\n");
-                    }
-
                 }
             }
         }
@@ -103,18 +175,22 @@ Server::Server(const std::string& address, const std::string& display_address)
 
 Server::~Server()
 {
-    close(serverSocket);
-
-    stop.store(true);
-    
-    acceptor.join();
-    receiver.join();
+    call_stop();
 }
 
 void Server::call_stop()
 {
     stop.store(true);
+    shutdown(serverSocket, SHUT_RDWR);
+    close(serverSocket);
 
-    int stop_socket = socket(AF_INET, SOCK_STREAM, 0);
-    connect(stop_socket, (sockaddr*)&serverAddr, sizeof(serverAddr)); 
+    acceptor.join();
+    receiver.join();
+    sender.join();
+
+    std::lock_guard<std::mutex> lg(clientMTX);
+    for (int client : clientSockets) {
+        shutdown(client, SHUT_RDWR);
+        close(client);
+    }
 }

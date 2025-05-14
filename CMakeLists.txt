@@ -22,19 +22,11 @@ set(CLIENT
     Client/client.h
 )
 
-set(DISPLAY
-    Display/main.cpp 
-    Display/display.cpp
-    Display/display.h
-)
-
 add_executable(ServerExe ${SERVER})
 add_executable(ClientExe ${CLIENT})
-add_executable(DisplayExe ${DISPLAY})
 
 target_link_libraries(ServerExe PRIVATE UtilsLib)
 target_link_libraries(ClientExe PRIVATE UtilsLib)
-target_link_libraries(DisplayExe PRIVATE UtilsLib)
 
 add_compile_options(
     -Wall -Wextra -g -std=c++20

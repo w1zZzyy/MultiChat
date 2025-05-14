@@ -6,13 +6,13 @@
 
 int main(int argc, char* argv[]) 
 {
-    assert(argc == 3);
+    assert(argc == 2);
 
     std::cout << "Client run start\n";
 
     try
     {
-        Client client(argv[1], argv[2]);
+        Client client(argv[1]);
 
         std::string message;
         while(std::getline(std::cin, message)){
